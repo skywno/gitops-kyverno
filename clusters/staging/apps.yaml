@@ -22,5 +22,16 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        # Ignore securityContext mutations at pod level (Kyverno adds security contexts)
+        - /spec/template/spec/securityContext
+      jqPathExpressions:
+        # Ignore image digest mutations for all containers (Kyverno replaces tag with digest)
+        - .spec.template.spec.containers[]?.image
+        # Ignore securityContext mutations for all containers
+        - .spec.template.spec.containers[]?.securityContext
   dependsOn:
     - name: infra-configs
