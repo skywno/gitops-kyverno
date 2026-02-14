@@ -20,6 +20,5 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true
   dependsOn:
     - name: infra-configs

@@ -10,6 +10,7 @@ metadata:
       This policy will mutate a Deployment to set a restricted securityContext for the pod and containers
       if they are not already set.
 spec:
+  background: false
   rules:
     - name: add-default-securitycontext
       match:
