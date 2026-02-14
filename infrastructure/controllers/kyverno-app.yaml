@@ -8,12 +8,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: oci://ghcr.io/kyverno/charts
-    targetRevision: 2.x
-    helm:
-      releaseName: kyverno
-      values: |
-        replicaCount: 2
+    chart: kyverno
+    repoURL: https://kyverno.github.io/kyverno
+    targetRevision: 3.7.0
   destination:
     server: https://kubernetes.default.svc
     namespace: kyverno
@@ -23,3 +20,5 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true
+      
