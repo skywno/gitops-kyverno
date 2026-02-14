@@ -1,42 +1,48 @@
 ---
-apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
-kind: Kustomization
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
   name: infra-controllers
-  namespace: flux-system
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
-  interval: 1h
-  retryInterval: 1m
-  timeout: 5m
-  sourceRef:
-    kind: GitRepository
-    name: flux-system
-  path: ./infrastructure/controllers
-  prune: true
-  wait: true
-  patches:
-    - patch: |
-        - op: replace
-          path: /spec/values/replicaCount
-          value: 1
-      target:
-        kind: HelmRelease
-        name: kyverno
+  project: default
+  source:
+    repoURL: https://github.com/skywno/gitops-kyverno.git
+    targetRevision: main
+    path: infrastructure/controllers
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
 ---
-apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
-kind: Kustomization
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
   name: infra-configs
-  namespace: flux-system
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
+  project: default
+  source:
+    repoURL: https://github.com/skywno/gitops-kyverno.git
+    targetRevision: main
+    path: infrastructure/configs
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
   dependsOn:
     - name: infra-controllers
-  interval: 1h
-  retryInterval: 1m
-  timeout: 5m
-  sourceRef:
-    kind: GitRepository
-    name: flux-system
-  path: ./infrastructure/configs
-  prune: true
-

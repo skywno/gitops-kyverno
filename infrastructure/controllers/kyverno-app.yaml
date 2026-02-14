@@ -1,24 +1,25 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: apps
+  name: kyverno
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: https://github.com/skywno/gitops-kyverno.git
-    targetRevision: main
-    path: apps/staging
+    repoURL: oci://ghcr.io/kyverno/charts
+    targetRevision: 2.x
+    helm:
+      releaseName: kyverno
+      values: |
+        replicaCount: 2
   destination:
     server: https://kubernetes.default.svc
-    namespace: default
+    namespace: kyverno
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-  dependsOn:
-    - name: infra-configs

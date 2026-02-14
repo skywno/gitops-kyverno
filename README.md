@@ -1,6 +1,6 @@
 # gitops-kyverno
 
-Kubernetes' policy managed with Flux and Kyverno
+Kubernetes' policy managed with Argo CD and Kyverno
 
 ## Prerequisites
 
@@ -12,10 +12,15 @@ In order to follow the guide you'll need a GitHub account and a
 [personal access token](https://help.github.com/en/github/authenticating-to-github/creating-a-personal-access-token-for-the-command-line)
 that can create repositories (check all permissions under `repo`).
 
-Install the Flux CLI on MacOS or Linux using Homebrew:
+Install the Argo CD CLI:
 
 ```sh
-brew install fluxcd/tap/flux
+# macOS
+brew install argocd
+
+# Linux
+curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+chmod +x /usr/local/bin/argocd
 ```
 
 ## Repository structure
@@ -24,16 +29,16 @@ The Git repository contains the following top directories:
 
 - **apps** dir contains a demo app (podinfo) and its configuration for each environment
 - **infrastructure** dir contains common infra tools such as Kyverno and its cluster policies
-- **clusters** dir contains the Flux configuration per cluster
+- **clusters** dir contains the Argo CD configuration per cluster
 
 ```
 ├── apps
-│   ├── base
-│   ├── production 
-│   └── staging
+│   ├── base
+│   ├── production 
+│   └── staging
 ├── infrastructure
-│   ├── configs
-│   └── controllers
+│   ├── configs
+│   └── controllers
 └── clusters
     ├── production
     └── staging
@@ -52,43 +57,69 @@ Fork this repository on your personal GitHub account and export your GitHub acce
 ```sh
 export GITHUB_TOKEN=<your-token>
 export GITHUB_USER=<your-username>
+export REPO_NAME=gitops-kyverno
 ```
 
-Set the kubectl context to your staging cluster and bootstrap Flux:
+Set the kubectl context to your staging cluster and install Argo CD:
 
 ```sh
-flux bootstrap github \
-    --context=kind-staging \
-    --owner=${GITHUB_USER} \
-    --repository=gitops-kyverno \
-    --branch=main \
-    --personal \
-    --path=clusters/staging
+kubectl config use-context kind-staging
+
+# Install Argo CD
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Wait for Argo CD to be ready
+kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
 ```
 
-The bootstrap command commits the manifests for the Flux components in `clusters/staging/flux-system` dir
-and creates a deploy key with read-only access on GitHub, so it can pull changes inside the cluster.
+Get the initial admin password:
 
-Wait for Flux to install the controllers and the demo app with:
+```sh
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+```
+
+Login to Argo CD (port-forward the server first):
+
+```sh
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+argocd login localhost:8080 --username admin --insecure
+```
+
+Bootstrap the root Application for staging:
+
+```sh
+argocd app create root-app \
+  --repo https://github.com/${GITHUB_USER}/${REPO_NAME}.git \
+  --path clusters/staging/argocd \
+  --dest-server https://kubernetes.default.svc \
+  --dest-namespace argocd \
+  --sync-policy automated \
+  --self-heal \
+  --auto-prune
+```
+
+The root Application will automatically create and sync the infrastructure and apps Applications defined in the `clusters/staging` directory.
+
+Wait for Argo CD to sync all applications:
 
 ```shell
-watch flux get kustomizations
+watch argocd app list
 ```
 
-## Access the Flux UI
+## Access the Argo CD UI
 
-To access the Flux UI on a cluster, first start port forwarding with:
+To access the Argo CD UI on a cluster, first start port forwarding with:
 
 ```sh
-kubectl -n flux-system port-forward svc/weave-gitops 9001:9001
+kubectl -n argocd port-forward svc/argocd-server 8080:443
 ```
 
-Navigate to `http://localhost:9001` and login using the username `admin` and the password `flux`.
+Navigate to `https://localhost:8080` and login using the username `admin` and the password retrieved earlier.
 
-[Weave GitOps](https://docs.gitops.weave.works/) provides insights into your application deployments,
-and makes continuous delivery with Flux easier to adopt and scale across your teams.
-The GUI provides a guided experience to build understanding and simplify getting started for new users;
-they can easily discover the relationship between Flux objects and navigate to deeper levels of information as required.
+The Argo CD UI provides insights into your application deployments,
+and makes continuous delivery easier to adopt and scale across your teams.
+You can easily discover the relationship between Applications and navigate to deeper levels of information as required.
 
 ## Mutating deployments with Kyverno
 
@@ -119,44 +150,46 @@ securityContext:
     type: RuntimeDefault
 ```
 
-## Flux vs Argo drift detection
+## Argo CD Application Structure
 
-If you've been using Argo, and you're switching to Flux, you may expect for Flux to report
-the above changes as a drift from Git and reapply the deployment continuously. With Argo, 
-you must define policies for each field that Kyverno mutates to ignore differences, while
-with Flux this is not need.
-Flux works with any admission controller as long the mutation also happens at dry-run.
+This repository uses the App of Apps pattern:
 
-To test that Flux has included the Kyverno mutations in its "desired state" we can run `flux diff`
-and check that no differences are reported:
+- **Root Application** (`clusters/*/argocd/root-app.yaml`) - Manages infrastructure and apps Applications
+- **Infrastructure Applications** (`clusters/*/infrastructure.yaml`) - Manages controllers (Kyverno) and configs (policies)
+- **Apps Application** (`clusters/*/apps.yaml`) - Manages environment-specific applications
 
-```shell
- flux diff kustomization apps --path ./apps/staging/
+Applications are configured with:
+- Automated sync with self-healing
+- Automatic pruning of resources removed from Git
+- Dependency management between Applications
+- Namespace auto-creation
+
+## Validation
+
+Before committing changes, validate the manifests:
+
+```sh
+./scripts/validate.sh
 ```
 
-Now if we change the podinfo image tag in `apps/staging/kustomization.yaml` to `6.3.0` and we run diff:
+This script validates:
+- All YAML files for syntax errors
+- Argo CD Application resources
+- Kustomize overlays
 
-```console
-$ flux diff kustomization apps --path ./apps/staging/
-✓  Kustomization diffing...
-► Deployment/podinfo/podinfo drifted
+## Production Cluster
 
-metadata.generation
-  ± value change
-    - 2
-    + 3
+To bootstrap the production cluster, follow the same steps but use:
 
-spec.template.spec.containers.podinfo.image
-  ± value change
-    - ghcr.io/stefanprodan/podinfo@sha256:4a72d3ce7eda670b78baadd8995384db29483dfc76e12f81a24e1fc1256c0a8e
-    + ghcr.io/stefanprodan/podinfo@sha256:c0d72aa8829a310b998308b8d3f05bde6840c66eaf2862b218f87e21ea5fb275
-
-⚠️ identified at least one change, exiting with non-zero exit code
+```sh
+kubectl config use-context <production-context>
+# ... install Argo CD ...
+argocd app create root-app \
+  --repo https://github.com/${GITHUB_USER}/${REPO_NAME}.git \
+  --path clusters/production/argocd \
+  --dest-server https://kubernetes.default.svc \
+  --dest-namespace argocd \
+  --sync-policy automated \
+  --self-heal \
+  --auto-prune
 ```
-
-We see that Flux detects a drift in the digest, instead of the image tag. Unlike Argo and other tools,
-Flux uses Kubernetes server-side apply dry-run to trigger the mutation webhooks, before it runs the
-drift detection algorithm.
-
-With Flux, you don't have to create special rules for each mutation made by admission controllers.
-

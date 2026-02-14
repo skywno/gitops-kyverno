@@ -18,10 +18,10 @@ spec:
             - Deployment
           namespaceSelector:
             matchExpressions:
-              - key: toolkit.fluxcd.io/tenant
+              - key: app.kubernetes.io/managed-by
                 operator: In
                 values:
-                  - dev-team
+                  - argocd
       mutate:
         patchStrategicMerge:
           spec:

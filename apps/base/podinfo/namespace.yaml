@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: podinfo
   labels:
-    toolkit.fluxcd.io/tenant: dev-team
+    app.kubernetes.io/managed-by: argocd
